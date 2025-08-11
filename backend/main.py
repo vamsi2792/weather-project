@@ -4,6 +4,11 @@ import requests
 
 app = FastAPI()
 
+origins = [
+    "http://localhost:3000",
+    # add other allowed origins if any
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,7 +40,7 @@ def get_forecast(city: str):
     response = requests.get(url)
     if response.status_code != 200:
         return {"error": "City not found"}
-    return response.json()  # return raw forecast data (can process if needed)
+    return response.json()
 
 @app.get("/alerts/{city}")
 def get_alerts(city: str):
@@ -48,13 +53,34 @@ def get_alerts(city: str):
     lat = geo_resp.json()[0]["lat"]
     lon = geo_resp.json()[0]["lon"]
 
-    onecall_url = f"http://api.openweathermap.org/data/2.5/onecall?lat={lat}&lon={lon}&appid={API_KEY}&exclude=current,minutely,hourly,daily"
+    # Fixed exclude string syntax, include units param for clarity
+    onecall_url = f"http://api.openweathermap.org/data/2.5/onecall?lat={lat}&lon={lon}&appid={API_KEY}&exclude=current,minutely,hourly,daily&units=metric"
     onecall_resp = requests.get(onecall_url)
     if onecall_resp.status_code != 200:
         return {"error": "Could not fetch alerts"}
 
     alerts = onecall_resp.json().get("alerts", [])
     return {"alerts": alerts}
+
+@app.get("/air-quality/")
+def get_air_quality(lat: float, lon: float):
+    url = f"http://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={lon}&appid={API_KEY}"
+    response = requests.get(url)
+    if response.status_code != 200:
+        return {"error": "Could not fetch AQI"}
+    data = response.json()
+    aqi = data["list"][0]["main"]["aqi"]  # AQI index 1-5
+    return {"aqi": aqi}
+
+@app.get("/forecast/hourly/")
+def get_hourly_forecast(lat: float, lon: float):
+    url = f"http://api.openweathermap.org/data/2.5/onecall?lat={lat}&lon={lon}&exclude=current,minutely,daily,alerts&appid={API_KEY}&units=metric"
+    response = requests.get(url)
+    if response.status_code != 200:
+        return {"error": "Could not fetch hourly forecast"}
+    data = response.json()
+    hourly = data.get("hourly", [])[:24]  # Next 24 hours
+    return {"hourly": hourly}
 
 def process_weather_data(data):
     return {
@@ -64,5 +90,6 @@ def process_weather_data(data):
         "humidity": data["main"]["humidity"],
         "wind_speed": data["wind"]["speed"],
         "description": data["weather"][0]["description"],
-        "icon": data["weather"][0]["icon"]
+        "icon": data["weather"][0]["icon"],
+        "coord": data.get("coord", {})  # Add this line
     }
